@@ -1,0 +1,70 @@
+# -*- mode: yaml -*-
+---
+# This should be defined in some greater scope. This is the account
+# email used with the certificate service (right now just
+# 'letsencrypt')
+#
+pubcert_account_email: None
+
+# This is the directory that the acme challenge files will be written
+# to and then served via http in order to validate the certificate
+# request
+pubcert_challenge_dir: None
+
+# Where are generated certificates kept (also used to check the expiry
+# of a certificate so we know if we need to generate a new one or not.)
+# 
+pubcert_cert_dest: "/etc/ssl"
+
+# Location of openssl command (in case not on the path or in a
+# non-standard place so it can be overriden as necessary)
+#
+pubcert_openssl: "/usr/bin/openssl"
+
+# Where on the host is the letsencrypt account key stored
+#
+pubcert_account_key: "{{ pubcert_cert_dest }}/letsencrypt_accout_key.key"
+pubcert_rsa_key_size: 2048
+
+# Define 'pubcert_file_base_name' when you want to set the the base of
+# the file name that the key, csr, cert, etc will be stored in. If not
+# set it will default to the 'common_name' variable
+#
+pubcert_file_base_name: ''
+
+# By default the key and cert file names will be derived from the
+# pubcert_file_base_name. But if you want them to have a specific name you
+# use these variables:
+#
+pubcert_key_file_name: ''
+pubcert_cert_file_name: ''
+
+# These are defaults for generating the CSR
+#
+country_name: US
+state_or_province_name: Nowhere
+locality_name: NoCity
+organization_name: NoCompany
+common_name: "{{ ansible_fqdn }}"
+
+# The subject alt names list is a list of dictionaries. You need to
+# specify the domain name to use as a SAN as well as the directory
+# where the security challenge is served, for example:
+#
+#         subject_alt_names:
+#          - name: "example.com"
+#            challenge_dir: "/usr/local/www/example.com/htdocs"
+#
+subject_alt_names: []
+
+# In case the agreement changes and the underlying code has not been
+# updated we specify it here.
+#
+letsencrypt_agreement: "https://letsencrypt.org/documents/LE-SA-v1.2-November-15-2017.pdf"
+pubcert_file_owner: "root"
+pubcert_group_owner: "wheel"
+
+# Staging is: 'https://acme-staging.api.letsencrypt.org/directory'
+#
+pubcert_acme_directory: "https://acme-v01.api.letsencrypt.org/directory"
+letsencrypt_intermediate_ca: "lets-encrypt-x3-cross-signed.pem"

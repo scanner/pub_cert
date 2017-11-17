@@ -1,0 +1,161 @@
+# -*- mode: yaml -*-
+---
+# Role initially cribbed from:
+# https://blog.nicoboehr.de/2017/05/06/request-lets-encrypt-certificates-with-ansible/
+#
+
+# NOTE: We delete this at the end of this task for security reasons.
+#
+- name: "Setup Lets Encrypt account key file"
+  copy:
+    content: "{{ lookup('vault', 'secret/letsencrypt/account').key }}"
+    dest: "{{ pubcert_account_key }}"
+    mode: 0400
+    owner: root
+    group: wheel
+  become: true
+  changed_when: false
+
+- name: Determine the base file name
+  set_fact:
+    file_base: "{{ pubcert_file_base_name | default(common_name) }}"
+
+- name: Setup local variables
+  set_fact:
+    key_file: "{{ pubcert_cert_dest }}/{{ pubcert_key_file_name | default(file_base + '.key') }}"
+    cert_file: "{{ pubcert_cert_dest }}/{{ pubcert_cert_file_name | default(file_base + '.pem') }}"
+    req_file: "{{ pubcert_cert_dest }}/{{ file_base }}.csr"
+    ca_file: "{{ pubcert_cert_dest }}/{{ file_base }}-cross-signed.pem"
+    req_config_file: "{{ pubcert_cert_dest }}/{{ file_base }}.conf"
+    
+- name: "Generate HTTPS Private Key"
+  command: "openssl genrsa -out {{ key_file }} {{ pubcert_rsa_key_size }}"
+  args:
+      creates: "{{ key_file }}"
+  become: true
+
+- name: "Make sure key file is read only {{ pubcert_file_owner }}"
+  file:
+    path: "{{ key_file }}"
+    mode: 0400
+    owner: "{{ pubcert_file_owner }}"
+    group: "{{ pubcert_group_owner }}"
+  become: true
+
+- name: "Make the OpenSSL Request config file"
+  template:
+    src: templates/openssl_req.conf.j2
+    dest: "{{ req_config_file }}"
+    mode: 0400
+  become: true
+  register: openssl_req_config_file
+
+- name: Delete the existing CSR if a new config file was created
+  file:
+    path: "{{ req_file }}"
+    state: absent
+  when: openssl_req_config_file|changed
+  become: true
+
+- name: Generate CSR
+  command: "openssl req -new 
+      -config {{ req_config_file }}
+      -key {{ key_file }} 
+      -out {{ req_file }}"
+  args:
+      creates: "{{ req_file }}"
+  become: true
+
+- name: protect CSR file
+  file:
+    path: "{{ req_file }}"
+    mode: 0600
+    owner: "{{ pubcert_file_owner }}"
+    group: "{{ pubcert_group_owner }}"
+  become: true
+
+- name: Create challenge directory
+  file:
+    path: "{{ pubcert_challenge_dir }}/.well-known/acme-challenge"
+    mode: 0755
+    state: directory
+  become: true
+
+- name: Create SAN challenge directories
+  file:
+    path: "{{ item.challenge_dir }}/.well-known/acme-challenge"
+    mode: 0755
+    state: directory
+  with_items: "{{ subject_alt_names }}"
+  become: true
+  
+- name: Requesting Lets Encrypt Challenge
+  letsencrypt:
+    account_email: "{{ pubcert_account_email }}"
+    account_key: "{{ pubcert_account_key }}"
+    csr: "{{ req_file }}"
+    dest: "{{ cert_file }}"
+    agreement: "{{ letsencrypt_agreement }}"
+    acme_directory: "{{ pubcert_acme_directory }}"
+  register: challenge
+  become: true
+
+- name: "Creating challenge content data for {{ common_name }}"
+  copy:
+    dest: "{{ challenge_file_name }}"
+    content: "{{ challenge_file_content }}"
+    mode: 0644
+  when: challenge|changed
+  vars:
+    challenge_file_name: "{{ pubcert_challenge_dir }}/{{ challenge['challenge_data'][common_name]['http-01']['resource'] }}"
+    challenge_file_content: "{{ challenge['challenge_data'][common_name]['http-01']['resource_value'] }}"
+  become: true
+
+- name: "Creating challenge content data for SANs"
+  copy:
+    dest: "{{ challenge_file_name }}"
+    content: "{{ challenge_file_content }}"
+    mode: 0644
+  when: challenge|changed
+  vars:
+    challenge_file_name: "{{ item.challenge_dir }}/{{ challenge['challenge_data'][item.name]['http-01']['resource'] }}"
+    challenge_file_content: "{{ challenge['challenge_data'][item.name]['http-01']['resource_value'] }}"
+  with_items: "{{ subject_alt_names }}"
+  become: true
+
+- name: Responding To Challenge and Fetching Certificate
+  letsencrypt:
+    account_email: "{{ pubcert_account_email }}"
+    account_key: "{{ pubcert_account_key }}"
+    csr: "{{ req_file }}"
+    dest: "{{ cert_file }}"
+    data: "{{ challenge }}"
+    agreement: "{{ letsencrypt_agreement }}"
+    acme_directory: "{{ pubcert_acme_directory }}"
+  become: true
+  when: challenge|changed
+  
+- name: Make sure cross-signed CA appended to cert file
+  blockinfile:
+    dest: "{{ cert_file }}"
+    block: "{{ item }}"
+    insertafter: EOF
+  with_file:
+    - "{{ letsencrypt_intermediate_ca }}"
+  become: true
+  no_log: true
+
+- name: "Make sure cert file is owned by {{ pubcert_file_owner }}"
+  file:
+    path: "{{ cert_file }}"
+    mode: 0400
+    owner: "{{ pubcert_file_owner }}"
+    group: "{{ pubcert_group_owner }}"
+  become: true
+
+- name: Delete the existing letsencrypt account key file
+  file:
+    path: "{{ pubcert_account_key }}"
+    state: absent
+  become: true
+  changed_when: false

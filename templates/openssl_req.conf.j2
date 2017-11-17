@@ -1,0 +1,22 @@
+[ req ]
+default_bits        = {{ pubcert_rsa_key_size }}
+prompt              = no 
+distinguished_name  = req_distinguished_name
+{% if subject_alt_names %}
+req_extensions      = req_ext
+{% endif %}
+[ req_distinguished_name ]
+countryName         = {{ country_name }}
+emailAddress        = {{ pubcert_account_email }}
+stateOrProvinceName = {{ state_or_province_name }}
+localityName        = {{ locality_name }}
+organizationName    = {{ organization_name }}
+commonName          = {{ common_name }}
+{% if subject_alt_names %}
+[ req_ext ]
+subjectAltName = @alt_names
+[alt_names]
+{% for san in subject_alt_names %}
+DNS.{{ loop.index }}   = {{ san.name }}
+{% endfor %}
+{% endif %}
